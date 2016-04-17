@@ -23,14 +23,29 @@ def update(data, id=None):
     entity.update(data)
     ds.put(entity)
 
+
+
+
+
 def check_if_exists(mac):
     ds = get_client()
-    #key = ds.key(config.KIND)
+    entity = datastore.Entity()
+
     query = ds.query(kind=config.KIND)
-    query.add_filter('source','=',"KUKK")
-    result = query.fetch()
-    list(result)
-    return 
+    query.add_filter('source','=',mac)
+    query.keys_only()
+    results = query.fetch(1)
+    id = 0
+    for result in results:
+        print result.key.id
+        id = result.key.id
+    if len(list(results)) == 0:
+        print("Fant ingenting")
+        return None
+    else:
+        return id
+        
+    
 
 
 client = pubsub.Client(project=config.PROJECT_ID)
@@ -43,7 +58,7 @@ if not subscription.exists():
 received = subscription.pull(max_messages=batch_size)
 
 
-print len(received)
+#print len(received)
 #pprint(received)
 
 ack_ids = []
@@ -52,9 +67,9 @@ ack_ids = []
 
 for recv in received:
 	#print(recv[1].data)
-    jk = json.loads(recv[1].data)
-    check_if_exists(jk['source'])
-    update(jk)
+    conv = json.loads(recv[1].data)
+    if check_if_exists(conv['source']) == None:
+        update(conv)
     #update(recv[1].data)
     ack_ids.append([recv[0]])
     

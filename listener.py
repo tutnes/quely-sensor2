@@ -1,37 +1,39 @@
 import config
+import time
 from gcloud import pubsub
 from pprint import pprint
 from gcloud import datastore
 import manuf
 import json
 
-batch_size = 1
+debug = True
+batch_size = 50
 global_counter = 0
 
 def get_client():
     return datastore.Client(config.PROJECT_ID)
 
-def update(data, id=None):
+def update(data, identifier=None):
     ds = get_client()
-    if id:
-        key = ds.key(config.KIND, int(id))
-        print "Got ID Passed"
+    if identifier:
+        key = ds.key(config.KIND, int(identifier))
+        print "Updating key: %s" %key
     else:
         key = ds.key(config.KIND)
-        print "Got no ID Passed"
-
-    pprint(id)
+        print "Updating key: %s" %key
     entity = datastore.Entity(key=key)
-        #exclude_from_indexes=['description'])
     entity.update(data)
     ds.put(entity)
     
 
 def mac_lookup(mac):
     p = manuf.MacParser()
-    #return u"Apple"
     return unicode(p.get_manuf(mac))
 
+def delete(identifier):
+    ds = get_client()
+    key = ds.key(config.KIND, int(identifier))
+    ds.delete(key)
 
 
 def check_if_exists(mac):
@@ -40,22 +42,24 @@ def check_if_exists(mac):
     query = ds.query(kind=config.KIND)
     query.add_filter('source','=',mac)
     query.keys_only()
-    results = query.fetch(1)
-    for result in results:
-        id = result.key.id
-    if len(list(results)) == 0:
-        return None
+    results = query.fetch()
+    if debug:
+        print ("Found %d number of instances of mac %s ") %(len(list(results)), mac)
+    print(type(len(list(results))))
+    print (len(list(results)))
+    if len(list(results)) != 0:
+        
+        return results[0].key.id
     else:
-        return id
+        return None
+
+    #for result in results:
+        #return result.key.id
+        #return identifier
 
 
 # Pulls down one message from the queue, checks if the source mac already exists if it does it updates the according ID
 #
-def delete(id):
-    ds = get_client()
-    key = ds.key('Book', int(id))
-    ds.delete(key)
-
 def get_queue():        
     client = pubsub.Client(project=config.PROJECT_ID)
     topic = client.topic(config.TOPIC)
@@ -63,29 +67,42 @@ def get_queue():
     if not subscription.exists():
         subscription.create()
     received = subscription.pull(max_messages=batch_size)
+    #received = subscription.pull()
     ack_ids = []
- 
+#Loops through the received messages from the queue and checks if they already exists 
+    if debug:
+        print "Received %d messages from subscription" %len(received)
+        time.sleep(2)
     for recv in received:
         conv = json.loads(recv[1].data)
-        exists = check_if_exists(conv['source'])
-        print "from main: " 
-        pprint(exists)
+        mac_fom_queue = conv['source']
+        exists = check_if_exists(mac_fom_queue)
         ack_ids.append([recv[0]])
         if  exists == None:
-            conv['producer'] = mac_lookup(conv['source'])
-            update(conv)
+            if debug:
+                print("Did not find mac: %s") %mac_fom_queue
         else:
-            delete(id)            
-            update(conv,exists)
+            if debug:
+                print("Deleting id: %s because we found mac %s in the database") %(exists, mac_fom_queue)
+            delete(exists)
         
-    if len(ack_ids) > 0:
+        conv['producer'] = mac_lookup(mac_fom_queue)
+        update(conv)
+        if debug:
+            print("Removing %d of messages") %len(ack_ids)
         subscription.acknowledge(ack_ids)
-        print "Removed one message from the queue"
+        ack_ids = []
+
+    #if len(ack_ids) > 0:
+    #    
+    ##    if debug:
+     #       print "Removed %d messages from the queue" %len(ack_ids)
+     #       time.sleep(2)
 
 def main():
     while True:
         get_queue()
-    
+    #delete(4584377761660928)
 
 if __name__=="__main__":
     main()
